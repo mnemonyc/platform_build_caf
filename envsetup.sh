@@ -545,7 +545,7 @@ function breakfast()
         else
             # This is probably just the Hazy model name
             if [ -z "$variant" ]; then
-                variant="user"
+                variant="userdebug"
             fi
             lunch hazy_$target-$variant
         fi
