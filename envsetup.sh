@@ -525,9 +525,10 @@ function brunch()
 function breakfast()
 {
     target=$1
+    local variant=$2
     CUSTOM_DEVICES_ONLY="true"
     unset LUNCH_MENU_CHOICES
-    for f in `/bin/ls vendor/nexus/vendorsetup.sh 2> /dev/null`
+    for f in `/bin/ls vendor/hazy/vendorsetup.sh 2> /dev/null`
         do
             echo "including $f"
             . $f
@@ -543,8 +544,11 @@ function breakfast()
             # A buildtype was specified, assume a full device name
             lunch $target
         else
-            # This is probably just the nexus model name
-            lunch nexus_$target-user
+            # This is probably just the Hazy model name
+            if [ -z "$variant" ]; then
+                variant="user"
+            fi
+            lunch hazy_$target-$variant
         fi
     fi
     return $?
