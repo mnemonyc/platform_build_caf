@@ -18,6 +18,8 @@ Invoke ". build/envsetup.sh" from your shell to add the following functions to y
 - sepgrep: Greps on all local sepolicy files.
 - sgrep:   Greps on all local source files.
 - godir:   Go to the directory containing a file.
+- mka:      Builds using SCHED_BATCH on all processors
+- reposync: Parallel repo sync using ionice and SCHED_BATCH
 
 Environemnt options:
 - SANITIZE_HOST: Set to 'true' to use ASAN for all host modules. Note that
@@ -67,6 +69,14 @@ function check_product()
         echo "Couldn't locate the top of the tree.  Try setting TOP." >&2
         return
     fi
+
+    if (echo -n $1 | grep -q -e "^hazy_") ; then
+       CUSTOM_BUILD=$(echo -n $1 | sed -e 's/^hazy_//g')
+    else
+       CUSTOM_BUILD=
+    fi
+    export CUSTOM_BUILD
+
         TARGET_PRODUCT=$1 \
         TARGET_BUILD_VARIANT= \
         TARGET_BUILD_TYPE= \
@@ -236,7 +246,6 @@ function set_stuff_for_environment()
     setpaths
     set_sequence_number
 
-    export ANDROID_BUILD_TOP=$(gettop)
     # With this environment variable new GCC can apply colors to warnings/errors
     export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
     export ASAN_OPTIONS=detect_leaks=0
@@ -473,19 +482,79 @@ function print_lunch_menu()
     local uname=$(uname)
     echo
     echo "You're building on" $uname
+    if [ "$(uname)" = "Darwin" ] ; then
+       echo "  (ohai, iSheep!!)"
+    fi
     echo
-    echo "Lunch menu... pick a combo:"
+    if [ "z${CUSTOM_DEVICES_ONLY}" != "z" ]; then
+       echo "Breakfast menu... pick a combo:"
+       echo " "
+    else
+       echo "Lunch menu... pick a combo:"
+       echo " "
+    fi
 
     local i=1
     local choice
     for choice in ${LUNCH_MENU_CHOICES[@]}
     do
-        echo "     $i. $choice"
+        echo " $i. $choice "
         i=$(($i+1))
     done
 
+    if [ "z${CUSTOM_DEVICES_ONLY}" != "z" ]; then
+       echo " "
+       echo "... time to mka bacon!!"
+    fi
+
     echo
 }
+
+function brunch()
+{
+    breakfast $*
+    if [ $? -eq 0 ]; then
+        time mka bacon
+    else
+        echo "No such item in brunch menu. Try 'breakfast'"
+        return 1
+    fi
+    return $?
+}
+
+function breakfast()
+{
+    target=$1
+    local variant=$2
+    CUSTOM_DEVICES_ONLY="true"
+    unset LUNCH_MENU_CHOICES
+    for f in `/bin/ls vendor/hazy/vendorsetup.sh 2> /dev/null`
+        do
+            echo "including $f"
+            . $f
+        done
+    unset f
+
+    if [ $# -eq 0 ]; then
+        # No arguments, so let's have the full menu
+        lunch
+    else
+        echo "z$target" | grep -q "-"
+        if [ $? -eq 0 ]; then
+            # A buildtype was specified, assume a full device name
+            lunch $target
+        else
+            # This is probably just the Hazy model name
+            if [ -z "$variant" ]; then
+                variant="userdebug"
+            fi
+            lunch hazy_$target-$variant
+        fi
+    fi
+    return $?
+}
+
+alias bib=breakfast
 
 function lunch()
 {
@@ -1400,6 +1469,37 @@ function godir () {
     \cd $T/$pathname
 }
 
+function mka() {
+    case `uname -s` in
+        Darwin)
+            make -j `sysctl hw.ncpu|cut -d" " -f2` "$@"
+            ;;
+        *)
+            mk_timer schedtool -B -n 1 -e ionice -n 1 make -j$(cat /proc/cpuinfo | grep "^processor" | wc -l) "$@"
+            ;;
+    esac
+}
+
+function reposync() {
+    case `uname -s` in
+        Darwin)
+            repo sync -j 4 "$@"
+            ;;
+        *)
+            schedtool -B -n 1 -e ionice -n 1 `which repo` sync -j 4 "$@"
+            ;;
+    esac
+}
+
+function repodiff() {
+    if [ -z "$*" ]; then
+        echo "Usage: repodiff <ref-from> [[ref-to] [--numstat]]"
+        return
+    fi
+    diffopts=$* repo forall -c \
+      'echo "$REPO_PATH ($REPO_REMOTE)"; git diff ${diffopts} 2>/dev/null ;'
+}
+
 # Force JAVA_HOME to point to java 1.7 if it isn't already set.
 #
 # Note that the MacOS path for java 1.7 includes a minor revision number (sigh).
@@ -1450,10 +1550,10 @@ function get_make_command()
   echo command make
 }
 
-function make()
+function mk_timer()
 {
     local start_time=$(date +"%s")
-    $(get_make_command) "$@"
+    $@
     local ret=$?
     local end_time=$(date +"%s")
     local tdiff=$(($end_time-$start_time))
@@ -1488,6 +1588,11 @@ function make()
     return $ret
 }
 
+function make()
+{
+    mk_timer $(get_make_command) "$@"
+}
+
 if [ "x$SHELL" != "x/bin/bash" ]; then
     case `ps -o command -p $$` in
         *bash*)
@@ -1508,3 +1613,5 @@ done
 unset f
 
 addcompletions
+
+export ANDROID_BUILD_TOP=$(gettop)

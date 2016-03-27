@@ -167,13 +167,13 @@ ifeq ($(TARGET_BUILD_VARIANT),user)
 
   # Dev. branches should have DISPLAY_BUILD_NUMBER set
   ifeq "true" "$(DISPLAY_BUILD_NUMBER)"
-    BUILD_DISPLAY_ID := $(BUILD_ID).$(BUILD_NUMBER) $(BUILD_KEYS)
+    BUILD_DISPLAY_ID := $(BUILD_ID)
   else
-    BUILD_DISPLAY_ID := $(BUILD_ID) $(BUILD_KEYS)
+    BUILD_DISPLAY_ID := $(BUILD_ID)
   endif
 else
   # Non-user builds should show detailed build information
-  BUILD_DISPLAY_ID := $(build_desc)
+  BUILD_DISPLAY_ID := $(BUILD_ID)
 endif
 
 # Accepts a whitespace separated list of product locales such as
@@ -272,17 +272,17 @@ endif
 # vendor build.prop
 #
 # For verifying that the vendor build is what we thing it is
-ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
-INSTALLED_VENDOR_BUILD_PROP_TARGET := $(TARGET_OUT_VENDOR)/build.prop
-ALL_DEFAULT_INSTALLED_MODULES += $(INSTALLED_VENDOR_BUILD_PROP_TARGET)
-$(INSTALLED_VENDOR_BUILD_PROP_TARGET): $(INSTALLED_BUILD_PROP_TARGET)
-	@echo Target vendor buildinfo: $@
-	@mkdir -p $(dir $@)
-	$(hide) echo > $@
-	$(hide) echo ro.vendor.build.date=`date`>>$@
-	$(hide) echo ro.vendor.build.date.utc=`date +%s`>>$@
-	$(hide) echo ro.vendor.build.fingerprint="$(BUILD_FINGERPRINT)">>$@
-endif
+#ifdef BOARD_VENDORIMAGE_FILE_SYSTEM_TYPE
+#INSTALLED_VENDOR_BUILD_PROP_TARGET := $(TARGET_OUT_VENDOR)/build.prop
+#ALL_DEFAULT_INSTALLED_MODULES += $(INSTALLED_VENDOR_BUILD_PROP_TARGET)
+#$(INSTALLED_VENDOR_BUILD_PROP_TARGET): $(INSTALLED_BUILD_PROP_TARGET)
+#	@echo Target vendor buildinfo: $@
+#	@mkdir -p $(dir $@)
+#	$(hide) echo > $@
+#	$(hide) echo ro.vendor.build.date=`date`>>$@
+#	$(hide) echo ro.vendor.build.date.utc=`date +%s`>>$@
+#	$(hide) echo ro.vendor.build.fingerprint="$(BUILD_FINGERPRINT)">>$@
+#endif
 
 # ----------------------------------------------------------------
 
@@ -908,7 +908,6 @@ define build-recoveryimage-target
   $(hide) cat $(INSTALLED_DEFAULT_PROP_TARGET) $(recovery_build_prop) \
           > $(TARGET_RECOVERY_ROOT_OUT)/default.prop
   $(hide) $(MKBOOTFS) -d $(TARGET_OUT) $(TARGET_RECOVERY_ROOT_OUT) | $(MINIGZIP) > $(recovery_ramdisk)
-
   $(if $(BOARD_CUSTOM_BOOTIMG_MK),,
     $(if $(filter true,$(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SUPPORTS_VBOOT)), \
       $(hide) $(MKBOOTIMG) $(INTERNAL_RECOVERYIMAGE_ARGS) $(BOARD_MKBOOTIMG_ARGS) --output $(1).unsigned, \
@@ -1084,6 +1083,18 @@ $(hide) ln -sf /vendor $(TARGET_OUT)/vendor
 endef
 else
 define create-system-vendor-symlink
+endef
+endif
+
+# Only Create symlink /system/vendor to /vendor if necessary.
+ifdef BOARD_NEEDS_VENDORIMAGE_SYMLINK
+define create-system-vendor-symlink
+$(hide) if [ -d $(TARGET_OUT)/vendor ] && [ ! -h $(TARGET_OUT)/vendor ]; then \
+  echo 'Non-symlink $(TARGET_OUT)/vendor detected!' 1>&2; \
+  echo 'You cannot install files to $(TARGET_OUT)/vendor while building a separate vendor.img!' 1>&2; \
+  exit 1; \
+fi
+$(hide) ln -sf /vendor $(TARGET_OUT)/vendor
 endef
 endif
 
@@ -1666,6 +1677,12 @@ INTERNAL_OTA_PACKAGE_TARGET := $(PRODUCT_OUT)/$(name).zip
 
 $(INTERNAL_OTA_PACKAGE_TARGET): KEY_CERT_PAIR := $(DEFAULT_KEY_CERT_PAIR)
 
+ifneq ($(CUSTOM_BUILD),)
+    $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := true
+else
+    $(INTERNAL_OTA_PACKAGE_TARGET): backuptool := false
+endif
+
 $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
 	@echo -e ${CL_YLW}"Package OTA:"${CL_RST}" $@"
 	$(hide) PATH=$(foreach p,$(INTERNAL_USERIMAGES_BINARY_PATHS),$(p):)$$PATH MKBOOTIMG=$(MKBOOTIMG) \
@@ -1673,11 +1690,18 @@ $(INTERNAL_OTA_PACKAGE_TARGET): $(BUILT_TARGET_FILES_PACKAGE) $(DISTTOOLS)
 	   --block \
 	   -p $(HOST_OUT) \
 	   -k $(KEY_CERT_PAIR) \
+	   --backup=$(backuptool) \
 	   $(if $(OEM_OTA_CONFIG), -o $(OEM_OTA_CONFIG)) \
 	   $(BUILT_TARGET_FILES_PACKAGE) $@
 
-.PHONY: otapackage
+CUSTOM_TARGET_PACKAGE := $(PRODUCT_OUT)/hazy_$(TARGET_PRODUCT)-$(PLATFORM_VERSION)-$(shell date +%Y%m%d).zip
+
+.PHONY: otapackage bacon
 otapackage: $(INTERNAL_OTA_PACKAGE_TARGET)
+bacon: otapackage
+	$(hide) ln -f $(INTERNAL_OTA_PACKAGE_TARGET) $(CUSTOM_TARGET_PACKAGE)
+	$(hide) $(MD5SUM) $(CUSTOM_TARGET_PACKAGE) > $(CUSTOM_TARGET_PACKAGE).md5sum
+	@echo -e ${CL_CYN}"Package Complete: $(CUSTOM_TARGET_PACKAGE)"${CL_RST}
 
 endif    # recovery_fstab is defined
 endif    # TARGET_NO_KERNEL != true

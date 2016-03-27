@@ -362,7 +362,7 @@ ifeq (true,$(strip $(enable_target_debugging)))
   INCLUDE_TEST_OTA_KEYS := true
 else # !enable_target_debugging
   # Target is less debuggable and adbd is off by default
-  ADDITIONAL_DEFAULT_PROPERTIES += ro.debuggable=0
+  ADDITIONAL_DEFAULT_PROPERTIES += ro.debuggable=1
 endif # !enable_target_debugging
 
 ## eng ##
@@ -504,7 +504,7 @@ ifneq ($(dont_bother),true)
 subdir_makefiles := \
 	$(shell build/tools/findleaves.py $(FIND_LEAVES_EXCLUDES) $(subdirs) Android.mk)
 
-$(foreach mk, $(subdir_makefiles), $(info including $(mk) ...)$(eval include $(mk)))
+$(foreach mk, $(subdir_makefiles), $(eval include $(mk)))
 
 endif # dont_bother
 

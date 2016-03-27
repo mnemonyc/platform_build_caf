@@ -117,7 +117,7 @@ ifdef product_goals
   # which really means TARGET_PRODUCT=dream make installclean.
   ifneq ($(filter-out $(INTERNAL_VALID_VARIANTS),$(TARGET_BUILD_VARIANT)),)
     MAKECMDGOALS := $(MAKECMDGOALS) $(TARGET_BUILD_VARIANT)
-    TARGET_BUILD_VARIANT := eng
+    TARGET_BUILD_VARIANT := userdebug
     default_goal_substitution :=
   else
     default_goal_substitution := $(DEFAULT_GOAL)
@@ -179,16 +179,22 @@ include $(BUILD_SYSTEM)/node_fns.mk
 include $(BUILD_SYSTEM)/product.mk
 include $(BUILD_SYSTEM)/device.mk
 
-ifneq ($(strip $(TARGET_BUILD_APPS)),)
-# An unbundled app build needs only the core product makefiles.
-all_product_configs := $(call get-product-makefiles,\
-    $(SRC_TARGET_DIR)/product/AndroidProducts.mk)
+# A CUSTOM build needs only the CUSTOM product makefiles.
+ifneq ($(CUSTOM_BUILD),)
+  all_product_configs := $(shell ls vendor/hazy/products/hazy_$(CUSTOM_BUILD).mk)
 else
-# Read in all of the product definitions specified by the AndroidProducts.mk
-# files in the tree.
-all_product_configs := $(get-all-product-makefiles)
+  ifneq ($(strip $(TARGET_BUILD_APPS)),)
+  # An unbundled app build needs only the core product makefiles.
+  all_product_configs := $(call get-product-makefiles,\
+      $(SRC_TARGET_DIR)/product/AndroidProducts.mk)
+  else
+    # Read in all of the product definitions specified by the AndroidProducts.mk
+    # files in the tree.
+    all_product_configs := $(get-all-product-makefiles)
+  endif
 endif
 
+ifeq ($(CUSTOM_BUILD),)
 # Find the product config makefile for the current product.
 # all_product_configs consists items like:
 # <product_name>:<path_to_the_product_makefile>
@@ -210,6 +216,10 @@ $(foreach f, $(all_product_configs),\
 _cpm_words :=
 _cpm_word1 :=
 _cpm_word2 :=
+else
+    current_product_makefile := $(strip $(all_product_configs))
+    all_product_makefiles := $(strip $(all_product_configs))
+endif
 current_product_makefile := $(strip $(current_product_makefile))
 all_product_makefiles := $(strip $(all_product_makefiles))
 
